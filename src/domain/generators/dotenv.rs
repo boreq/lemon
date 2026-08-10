@@ -1,4 +1,4 @@
-use crate::domain::{Payload, PayloadGenerator, RequestUrl};
+use crate::domain::{Payload, PayloadGenerator, Request};
 use askama::Template;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
@@ -23,14 +23,15 @@ impl PayloadGenerator for DotEnvGenerator {
         "dotenv"
     }
 
-    fn supports(&self, request: &RequestUrl) -> bool {
+    fn supports(&self, request: &Request) -> bool {
         request
+            .url()
             .file_name()
             .map(|name| name.starts_with(".env"))
             .unwrap_or(false)
     }
 
-    fn generate(&self, _request: &RequestUrl) -> Payload {
+    fn generate(&self, _request: &Request) -> Payload {
         Payload::text(build_template().render().unwrap_or_default())
     }
 }
@@ -118,7 +119,7 @@ mod tests {
     use super::*;
 
     fn supports(path: &str) -> bool {
-        DotEnvGenerator::new().supports(&RequestUrl::parse(path))
+        DotEnvGenerator::new().supports(&Request::get(path))
     }
 
     #[test]
@@ -144,7 +145,7 @@ mod tests {
 
     #[test]
     fn generates_plausible_env() {
-        let payload = DotEnvGenerator::new().generate(&RequestUrl::parse("/.env"));
+        let payload = DotEnvGenerator::new().generate(&Request::get("/.env"));
         let body = String::from_utf8(payload.into_body()).unwrap();
         assert!(body.contains("DB_PASSWORD="));
         assert!(body.contains("AWS_ACCESS_KEY_ID=AKIA"));

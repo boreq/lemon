@@ -3,9 +3,11 @@ mod aws_credentials;
 mod dotenv;
 mod gitconfig;
 mod phpinfo;
+mod wp_login;
 
 pub use aws_config::AwsConfigGenerator;
 pub use aws_credentials::AwsCredentialsGenerator;
 pub use dotenv::DotEnvGenerator;
 pub use gitconfig::GitConfigGenerator;
 pub use phpinfo::PhpInfoGenerator;
+pub use wp_login::WpLoginGenerator;

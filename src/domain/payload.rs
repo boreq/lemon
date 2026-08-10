@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 #[derive(Debug, Clone)]
 pub struct Payload {
     status: u16,
     content_type: String,
     body: Vec<u8>,
+    delay: Option<Duration>,
 }
 
 impl Payload {
@@ -11,7 +14,13 @@ impl Payload {
             status,
             content_type: content_type.into(),
             body: body.into(),
+            delay: None,
         }
+    }
+
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = Some(delay);
+        self
     }
 
     pub fn html(body: impl Into<Vec<u8>>) -> Self {
@@ -32,6 +41,10 @@ impl Payload {
 
     pub fn body(&self) -> &[u8] {
         &self.body
+    }
+
+    pub fn delay(&self) -> Option<Duration> {
+        self.delay
     }
 
     pub fn into_body(self) -> Vec<u8> {

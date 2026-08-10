@@ -1,4 +1,4 @@
-use crate::domain::{Payload, PayloadGenerator, RequestUrl};
+use crate::domain::{Payload, PayloadGenerator, Request};
 use askama::Template;
 
 pub struct PhpInfoGenerator;
@@ -24,8 +24,9 @@ impl PayloadGenerator for PhpInfoGenerator {
         "phpinfo"
     }
 
-    fn supports(&self, request: &RequestUrl) -> bool {
-        if let Some(name) = request.file_name() {
+    fn supports(&self, request: &Request) -> bool {
+        let url = request.url();
+        if let Some(name) = url.file_name() {
             let name = name.to_ascii_lowercase();
             let (stem, is_php_ext) = split_php_extension(&name);
 
@@ -37,14 +38,15 @@ impl PayloadGenerator for PhpInfoGenerator {
             }
         }
 
-        request.query_mentions("phpinfo")
+        url.query_mentions("phpinfo")
     }
 
-    fn generate(&self, request: &RequestUrl) -> Payload {
+    fn generate(&self, request: &Request) -> Payload {
         let now = chrono::Utc::now();
+        let path = request.url().path();
         let template = PhpInfoTemplate {
-            script_path: request.path().to_string(),
-            script_filename: format!("/var/www/html{}", request.path()),
+            script_path: path.to_string(),
+            script_filename: format!("/var/www/html{path}"),
             request_time: now.timestamp().to_string(),
             request_time_float: format!("{}.{:03}", now.timestamp(), now.timestamp_subsec_millis()),
         };
@@ -73,7 +75,7 @@ mod tests {
     use super::*;
 
     fn supports(path: &str) -> bool {
-        PhpInfoGenerator::new().supports(&RequestUrl::parse(path))
+        PhpInfoGenerator::new().supports(&Request::get(path))
     }
 
     #[test]
@@ -119,7 +121,7 @@ mod tests {
 
     #[test]
     fn generates_real_phpinfo_page() {
-        let payload = PhpInfoGenerator::new().generate(&RequestUrl::parse("/phpinfo.php"));
+        let payload = PhpInfoGenerator::new().generate(&Request::get("/phpinfo.php"));
         let body = String::from_utf8(payload.into_body()).unwrap();
         assert!(body.contains("<title>phpinfo()</title>"));
         assert!(body.contains("PHP Version 5.6.40"));

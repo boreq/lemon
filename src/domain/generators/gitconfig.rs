@@ -1,4 +1,4 @@
-use crate::domain::{Payload, PayloadGenerator, RequestUrl};
+use crate::domain::{Payload, PayloadGenerator, Request};
 use askama::Template;
 use rand::Rng;
 use rand::distributions::Alphanumeric;
@@ -23,12 +23,12 @@ impl PayloadGenerator for GitConfigGenerator {
         "gitconfig"
     }
 
-    fn supports(&self, request: &RequestUrl) -> bool {
-        let segments: Vec<&str> = request.segments().collect();
+    fn supports(&self, request: &Request) -> bool {
+        let segments: Vec<&str> = request.url().segments().collect();
         matches!(segments.as_slice(), [.., ".git", "config"])
     }
 
-    fn generate(&self, _request: &RequestUrl) -> Payload {
+    fn generate(&self, _request: &Request) -> Payload {
         Payload::text(build_template().render().unwrap_or_default())
     }
 }
@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     fn supports(path: &str) -> bool {
-        GitConfigGenerator::new().supports(&RequestUrl::parse(path))
+        GitConfigGenerator::new().supports(&Request::get(path))
     }
 
     #[test]
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn generates_plausible_git_config() {
-        let payload = GitConfigGenerator::new().generate(&RequestUrl::parse("/.git/config"));
+        let payload = GitConfigGenerator::new().generate(&Request::get("/.git/config"));
         let body = String::from_utf8(payload.into_body()).unwrap();
         assert!(body.contains("[remote \"origin\"]"));
         assert!(body.contains("ghp_"));

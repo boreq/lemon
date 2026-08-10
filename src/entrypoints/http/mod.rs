@@ -1,10 +1,11 @@
 use crate::app::{self, Dispatch};
 use crate::config;
-use crate::domain::RequestUrl;
+use crate::domain::{Request, RequestUrl};
 use crate::errors::Result;
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{StatusCode, Uri};
+use axum::http::{Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use http::header;
 use tower::ServiceBuilder;
@@ -41,14 +42,22 @@ where
     }
 }
 
-async fn handle_trap<D>(State(deps): State<D>, uri: Uri) -> Response
+async fn handle_trap<D>(
+    State(deps): State<D>,
+    method: Method,
+    uri: Uri,
+    body: Bytes,
+) -> Response
 where
     D: Deps,
 {
-    let request = RequestUrl::from_uri(&uri);
+    let request = Request::new(method, RequestUrl::from_uri(&uri), body.to_vec());
 
     match deps.dispatch().dispatch(&request) {
         Some(payload) => {
+            if let Some(delay) = payload.delay() {
+                tokio::time::sleep(delay).await;
+            }
             let status =
                 StatusCode::from_u16(payload.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let content_type = payload.content_type().to_string();

@@ -1,4 +1,4 @@
-use crate::domain::{Payload, PayloadGenerator, RequestUrl};
+use crate::domain::{Payload, PayloadGenerator, Request};
 use askama::Template;
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -22,12 +22,12 @@ impl PayloadGenerator for AwsConfigGenerator {
         "aws_config"
     }
 
-    fn supports(&self, request: &RequestUrl) -> bool {
-        let segments: Vec<&str> = request.segments().collect();
+    fn supports(&self, request: &Request) -> bool {
+        let segments: Vec<&str> = request.url().segments().collect();
         matches!(segments.as_slice(), [.., ".aws", "config"])
     }
 
-    fn generate(&self, _request: &RequestUrl) -> Payload {
+    fn generate(&self, _request: &Request) -> Payload {
         Payload::text(build_template().render().unwrap_or_default())
     }
 }
@@ -184,11 +184,11 @@ mod tests {
     use super::*;
 
     fn supports(path: &str) -> bool {
-        AwsConfigGenerator::new().supports(&RequestUrl::parse(path))
+        AwsConfigGenerator::new().supports(&Request::get(path))
     }
 
     fn generate() -> String {
-        let payload = AwsConfigGenerator::new().generate(&RequestUrl::parse("/.aws/config"));
+        let payload = AwsConfigGenerator::new().generate(&Request::get("/.aws/config"));
         String::from_utf8(payload.into_body()).unwrap()
     }
 

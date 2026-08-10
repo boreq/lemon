@@ -66,8 +66,11 @@ impl Metrics {
         let registry = Registry::new_custom(Some("lemon".into()), None)?;
 
         let metric_requests = CounterVec::new(
-            Opts::new("requests_total", "trap requests grouped by generator"),
-            &["generator"],
+            Opts::new(
+                "requests_total",
+                "trap requests grouped by generator and method",
+            ),
+            &["generator", "method"],
         )?;
         registry.register(Box::new(metric_requests.clone()))?;
 
@@ -80,7 +83,7 @@ impl Metrics {
         )?;
         registry.register(Box::new(metric_dispatch.clone()))?;
 
-        metric_requests.with(&labels! { "generator" => "none" });
+        metric_requests.with(&labels! { "generator" => "none", "method" => "GET" });
         metric_dispatch.with(&labels! { "outcome" => "served" });
         metric_dispatch.with(&labels! { "outcome" => "missed" });
 
@@ -97,18 +100,18 @@ impl Metrics {
 }
 
 impl app::Metrics for Metrics {
-    fn record_served(&self, generator: &str) {
+    fn record_served(&self, generator: &str, method: &str) {
         self.metric_requests
-            .with(&labels! { "generator" => generator })
+            .with(&labels! { "generator" => generator, "method" => method })
             .inc();
         self.metric_dispatch
             .with(&labels! { "outcome" => "served" })
             .inc();
     }
 
-    fn record_miss(&self) {
+    fn record_miss(&self, method: &str) {
         self.metric_requests
-            .with(&labels! { "generator" => "none" })
+            .with(&labels! { "generator" => "none", "method" => method })
             .inc();
         self.metric_dispatch
             .with(&labels! { "outcome" => "missed" })

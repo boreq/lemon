@@ -1,5 +1,5 @@
 use crate::app::{Dispatch, Metrics};
-use crate::domain::{Payload, PayloadGenerator, RequestUrl};
+use crate::domain::{Payload, PayloadGenerator, Request};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -24,14 +24,15 @@ impl<M> Dispatch for DispatchHandler<M>
 where
     M: Metrics,
 {
-    fn dispatch(&self, request: &RequestUrl) -> Option<Payload> {
+    fn dispatch(&self, request: &Request) -> Option<Payload> {
+        let method = request.method().as_str();
         for generator in self.generators.iter() {
             if generator.supports(request) {
-                self.metrics.record_served(generator.name());
+                self.metrics.record_served(generator.name(), method);
                 return Some(generator.generate(request));
             }
         }
-        self.metrics.record_miss();
+        self.metrics.record_miss(method);
         None
     }
 }
@@ -45,15 +46,18 @@ mod tests {
     #[derive(Clone, Default)]
     struct SpyMetrics {
         served: Arc<Mutex<Vec<String>>>,
-        misses: Arc<Mutex<usize>>,
+        misses: Arc<Mutex<Vec<String>>>,
     }
 
     impl Metrics for SpyMetrics {
-        fn record_served(&self, generator: &str) {
-            self.served.lock().unwrap().push(generator.to_string());
+        fn record_served(&self, generator: &str, method: &str) {
+            self.served
+                .lock()
+                .unwrap()
+                .push(format!("{generator}:{method}"));
         }
-        fn record_miss(&self) {
-            *self.misses.lock().unwrap() += 1;
+        fn record_miss(&self, method: &str) {
+            self.misses.lock().unwrap().push(method.to_string());
         }
     }
 
@@ -72,21 +76,27 @@ mod tests {
         let metrics = SpyMetrics::default();
         let h = handler(metrics.clone());
 
-        assert!(h.dispatch(&RequestUrl::parse("/phpinfo.php")).is_some());
-        assert!(h.dispatch(&RequestUrl::parse("/app/.env")).is_some());
+        assert!(h.dispatch(&Request::get("/phpinfo.php")).is_some());
+        assert!(
+            h.dispatch(&Request::post("/app/.env", "raw=1"))
+                .is_some()
+        );
 
-        assert_eq!(*metrics.served.lock().unwrap(), ["phpinfo", "dotenv"]);
-        assert_eq!(*metrics.misses.lock().unwrap(), 0);
+        assert_eq!(
+            *metrics.served.lock().unwrap(),
+            ["phpinfo:GET", "dotenv:POST"]
+        );
+        assert!(metrics.misses.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn records_miss_when_nothing_matches() {
+    fn records_miss_with_method_when_nothing_matches() {
         let metrics = SpyMetrics::default();
         let h = handler(metrics.clone());
 
-        assert!(h.dispatch(&RequestUrl::parse("/index.html")).is_none());
+        assert!(h.dispatch(&Request::get("/index.html")).is_none());
 
         assert!(metrics.served.lock().unwrap().is_empty());
-        assert_eq!(*metrics.misses.lock().unwrap(), 1);
+        assert_eq!(*metrics.misses.lock().unwrap(), ["GET"]);
     }
 }
