@@ -58,6 +58,7 @@ impl TryFrom<String> for Environment {
 pub struct Metrics {
     registry: Registry,
     metric_requests: CounterVec,
+    metric_dispatch: CounterVec,
 }
 
 impl Metrics {
@@ -70,9 +71,19 @@ impl Metrics {
         )?;
         registry.register(Box::new(metric_requests.clone()))?;
 
+        let metric_dispatch = CounterVec::new(
+            Opts::new(
+                "dispatch_total",
+                "trap requests grouped by dispatch outcome",
+            ),
+            &["outcome"],
+        )?;
+        registry.register(Box::new(metric_dispatch.clone()))?;
+
         Ok(Self {
             registry,
             metric_requests,
+            metric_dispatch,
         })
     }
 
@@ -86,11 +97,17 @@ impl app::Metrics for Metrics {
         self.metric_requests
             .with(&labels! { "generator" => generator })
             .inc();
+        self.metric_dispatch
+            .with(&labels! { "outcome" => "served" })
+            .inc();
     }
 
     fn record_miss(&self) {
         self.metric_requests
             .with(&labels! { "generator" => "none" })
+            .inc();
+        self.metric_dispatch
+            .with(&labels! { "outcome" => "missed" })
             .inc();
     }
 }
