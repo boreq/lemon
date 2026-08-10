@@ -5,7 +5,7 @@ use lemon::app;
 use lemon::app::dispatch::DispatchHandler;
 use lemon::config::Config;
 use lemon::domain::PayloadGenerator;
-use lemon::domain::generators::{DotEnvGenerator, PhpInfoGenerator};
+use lemon::domain::generators::{DotEnvGenerator, GitConfigGenerator, PhpInfoGenerator};
 use lemon::entrypoints::{http, metrics};
 use lemon::errors::Result;
 use log::error;
@@ -105,6 +105,7 @@ impl<'a> Service<'a> {
         let generators: Vec<Box<dyn PayloadGenerator>> = vec![
             Box::new(PhpInfoGenerator::new()),
             Box::new(DotEnvGenerator::new()),
+            Box::new(GitConfigGenerator::new()),
         ];
 
         let dispatch_handler = DispatchHandler::new(generators, metrics.clone());
