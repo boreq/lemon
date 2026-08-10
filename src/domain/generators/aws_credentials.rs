@@ -43,7 +43,7 @@ struct Profile {
     access_key_id: String,
     secret_access_key: String,
     session_token: Option<String>,
-    region: String,
+    region: Option<String>,
 }
 
 const REGIONS: [&str; 6] = [
@@ -84,14 +84,14 @@ fn build_template() -> AwsCredentialsTemplate {
             let temporary = rng.gen_bool(0.25);
             Profile {
                 name,
-                access_key_id: format!(
-                    "{}{}",
-                    if temporary { "ASIA" } else { "AKIA" },
-                    rand_key_id_suffix(&mut rng, 16)
-                ),
-                secret_access_key: rand_base64(&mut rng, 40),
-                session_token: temporary.then(|| rand_base64(&mut rng, 356)),
-                region: REGIONS.choose(&mut rng).unwrap().to_string(),
+                access_key_id: access_key_id(&mut rng, temporary),
+                secret_access_key: secret_access_key(&mut rng),
+                session_token: temporary.then(|| session_token(&mut rng)),
+                // Regions belong in the config file, they only show up in some
+                // credentials files.
+                region: rng
+                    .gen_bool(0.5)
+                    .then(|| REGIONS.choose(&mut rng).unwrap().to_string()),
             }
         })
         .collect();
@@ -99,18 +99,95 @@ fn build_template() -> AwsCredentialsTemplate {
     AwsCredentialsTemplate { profiles }
 }
 
-fn rand_key_id_suffix<R: Rng>(rng: &mut R, len: usize) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    (0..len)
-        .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
+/// Builds an access key identifier which decodes the way the real ones do.
+///
+/// A key is a four character prefix followed by ten base32 encoded bytes. The
+/// first six of those bytes carry the account identifier so that it can be
+/// recovered without calling AWS: `account_id = (bytes[0..6] & 0x7fffffffff80) >> 7`.
+/// The top bit is always set and the low seven bits are not part of the
+/// account identifier.
+fn access_key_id<R: Rng>(rng: &mut R, temporary: bool) -> String {
+    let account_id: u64 = rng.gen_range(100_000_000_000..=999_999_999_999);
+    let header: u64 = (1 << 47) | (account_id << 7) | rng.gen_range(0..=0x7f);
+
+    let mut bytes = [0u8; 10];
+    bytes[..6].copy_from_slice(&header.to_be_bytes()[2..]);
+    rng.fill(&mut bytes[6..]);
+
+    let prefix = if temporary { "ASIA" } else { "AKIA" };
+    format!("{prefix}{}", base32_encode(&bytes))
+}
+
+/// Secrets are thirty random bytes in base64, which is always forty characters
+/// without any padding.
+fn secret_access_key<R: Rng>(rng: &mut R) -> String {
+    let mut bytes = [0u8; 30];
+    rng.fill(&mut bytes[..]);
+    base64_encode(&bytes)
+}
+
+/// Builds a session token which decodes into something with the shape of the
+/// real ones: a version byte, a protobuf style `origin_ec` field and then an
+/// opaque encrypted blob of a few hundred bytes.
+fn session_token<R: Rng>(rng: &mut R) -> String {
+    let mut bytes = vec![0x21, 0x0a, 0x09];
+    bytes.extend_from_slice(b"origin_ec");
+
+    let blob_len = rng.gen_range(300..=700);
+    bytes.push(0x12);
+    push_varint(&mut bytes, blob_len as u64);
+
+    let blob_start = bytes.len();
+    bytes.resize(blob_start + blob_len, 0);
+    rng.fill(&mut bytes[blob_start..]);
+
+    base64_encode(&bytes)
+}
+
+fn push_varint(out: &mut Vec<u8>, mut value: u64) {
+    while value >= 0x80 {
+        out.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    out.push(value as u8);
+}
+
+/// Encodes bytes using the standard base32 alphabet. The input length has to be
+/// a multiple of five bytes so that no padding is needed.
+fn base32_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    assert!(bytes.len().is_multiple_of(5));
+
+    bytes
+        .chunks(5)
+        .flat_map(|chunk| {
+            let group = chunk
+                .iter()
+                .fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte));
+            (0..8).map(move |i| ALPHABET[((group >> (35 - 5 * i)) & 0x1f) as usize] as char)
+        })
         .collect()
 }
 
-fn rand_base64<R: Rng>(rng: &mut R, len: usize) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    (0..len)
-        .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
-        .collect()
+/// Encodes bytes using the standard base64 alphabet, padding with `=`.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let group = chunk
+            .iter()
+            .fold(0u32, |acc, byte| (acc << 8) | u32::from(*byte))
+            << (8 * (3 - chunk.len()));
+
+        for i in 0..chunk.len() + 1 {
+            out.push(ALPHABET[((group >> (18 - 6 * i)) & 0x3f) as usize] as char);
+        }
+        for _ in 0..3 - chunk.len() {
+            out.push('=');
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -125,6 +202,59 @@ mod tests {
         let payload =
             AwsCredentialsGenerator::new().generate(&RequestUrl::parse("/.aws/credentials"));
         String::from_utf8(payload.into_body()).unwrap()
+    }
+
+    fn values_of<'a>(body: &'a str, setting: &str) -> Vec<&'a str> {
+        let prefix = format!("{setting} = ");
+        body.lines()
+            .filter_map(|line| line.strip_prefix(prefix.as_str()))
+            .collect()
+    }
+
+    fn base32_decode(s: &str) -> Vec<u8> {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        assert!(s.len().is_multiple_of(8));
+
+        s.as_bytes()
+            .chunks(8)
+            .flat_map(|chunk| {
+                let group = chunk.iter().fold(0u64, |acc, c| {
+                    (acc << 5) | ALPHABET.iter().position(|a| a == c).unwrap() as u64
+                });
+                (0..5).map(move |i| (group >> (32 - 8 * i)) as u8)
+            })
+            .collect()
+    }
+
+    fn base64_decode(s: &str) -> Vec<u8> {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        assert!(s.len().is_multiple_of(4));
+
+        let padding = s.chars().rev().take_while(|c| *c == '=').count();
+        let decoded: Vec<u8> = s
+            .trim_end_matches('=')
+            .as_bytes()
+            .chunks(4)
+            .flat_map(|chunk| {
+                let group = chunk.iter().fold(0u32, |acc, c| {
+                    (acc << 6) | ALPHABET.iter().position(|a| a == c).unwrap() as u32
+                });
+                let group = group << (6 * (4 - chunk.len()));
+                (0..3).map(move |i| (group >> (16 - 8 * i)) as u8)
+            })
+            .collect();
+
+        decoded[..decoded.len() - padding].to_vec()
+    }
+
+    /// The account identifier recovery used by `sts:GetAccessKeyInfo` and by
+    /// every offline decoder out there.
+    fn account_id_of(access_key_id: &str) -> u64 {
+        let bytes = base32_decode(&access_key_id[4..]);
+        let header = bytes[..6]
+            .iter()
+            .fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte));
+        (header & 0x7fffffffff80) >> 7
     }
 
     #[test]
@@ -147,26 +277,8 @@ mod tests {
     fn generates_plausible_credentials() {
         let body = generate();
         assert!(body.contains("[default]"));
-        assert!(body.contains("aws_access_key_id = "));
-        assert!(body.contains("aws_secret_access_key = "));
-        assert!(body.contains("region = "));
-    }
-
-    #[test]
-    fn generates_keys_with_realistic_shapes() {
-        for _ in 0..100 {
-            let body = generate();
-
-            for line in body.lines() {
-                if let Some(key_id) = line.strip_prefix("aws_access_key_id = ") {
-                    assert_eq!(key_id.len(), 20, "unexpected key id: {key_id}");
-                    assert!(key_id.starts_with("AKIA") || key_id.starts_with("ASIA"));
-                }
-                if let Some(secret) = line.strip_prefix("aws_secret_access_key = ") {
-                    assert_eq!(secret.len(), 40, "unexpected secret: {secret}");
-                }
-            }
-        }
+        assert!(!values_of(&body, "aws_access_key_id").is_empty());
+        assert!(!values_of(&body, "aws_secret_access_key").is_empty());
     }
 
     #[test]
@@ -176,28 +288,60 @@ mod tests {
     }
 
     #[test]
+    fn access_key_ids_decode_to_valid_account_ids() {
+        for _ in 0..100 {
+            for key_id in values_of(&generate(), "aws_access_key_id") {
+                assert_eq!(key_id.len(), 20, "unexpected key id: {key_id}");
+                assert!(key_id.starts_with("AKIA") || key_id.starts_with("ASIA"));
+
+                let account_id = account_id_of(key_id);
+                assert!(
+                    (100_000_000_000..=999_999_999_999).contains(&account_id),
+                    "{key_id} decoded to {account_id}, which is not a 12 digit account id"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn secret_access_keys_are_forty_unpadded_base64_characters() {
+        for _ in 0..100 {
+            for secret in values_of(&generate(), "aws_secret_access_key") {
+                assert_eq!(secret.len(), 40, "unexpected secret: {secret}");
+                assert_eq!(base64_decode(secret).len(), 30);
+            }
+        }
+    }
+
+    #[test]
+    fn session_tokens_decode_to_a_token_shaped_blob() {
+        let mut seen = 0;
+        for _ in 0..100 {
+            for token in values_of(&generate(), "aws_session_token") {
+                seen += 1;
+                assert!(token.starts_with("IQoJb3JpZ2luX2Vj"), "unexpected token");
+
+                let decoded = base64_decode(token);
+                assert_eq!(decoded[0], 0x21);
+                assert_eq!(&decoded[1..12], b"\x0a\x09origin_ec");
+                assert!(decoded.len() > 300);
+            }
+        }
+        assert!(seen > 0, "no temporary credentials were generated");
+    }
+
+    #[test]
     fn session_tokens_only_accompany_temporary_credentials() {
         for _ in 0..100 {
             let body = generate();
 
-            for profile in body.split("[").skip(1) {
+            for profile in body.split('[').skip(1) {
                 if profile.contains("aws_session_token = ") {
                     assert!(profile.contains("aws_access_key_id = ASIA"));
                 } else {
                     assert!(profile.contains("aws_access_key_id = AKIA"));
                 }
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod sample {
-    use super::*;
-    #[test]
-    fn print_sample() {
-        for _ in 0..3 {
-            println!("=====\n{}", build_template().render().unwrap());
         }
     }
 }

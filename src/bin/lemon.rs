@@ -6,7 +6,8 @@ use lemon::app::dispatch::DispatchHandler;
 use lemon::config::Config;
 use lemon::domain::PayloadGenerator;
 use lemon::domain::generators::{
-    AwsCredentialsGenerator, DotEnvGenerator, GitConfigGenerator, PhpInfoGenerator,
+    AwsConfigGenerator, AwsCredentialsGenerator, DotEnvGenerator, GitConfigGenerator,
+    PhpInfoGenerator,
 };
 use lemon::entrypoints::{http, metrics};
 use lemon::errors::Result;
@@ -109,6 +110,7 @@ impl<'a> Service<'a> {
             Box::new(DotEnvGenerator::new()),
             Box::new(GitConfigGenerator::new()),
             Box::new(AwsCredentialsGenerator::new()),
+            Box::new(AwsConfigGenerator::new()),
         ];
 
         let dispatch_handler = DispatchHandler::new(generators, metrics.clone());
