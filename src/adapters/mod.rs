@@ -80,6 +80,10 @@ impl Metrics {
         )?;
         registry.register(Box::new(metric_dispatch.clone()))?;
 
+        metric_requests.with(&labels! { "generator" => "none" });
+        metric_dispatch.with(&labels! { "outcome" => "served" });
+        metric_dispatch.with(&labels! { "outcome" => "missed" });
+
         Ok(Self {
             registry,
             metric_requests,
