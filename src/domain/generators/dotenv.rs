@@ -129,6 +129,10 @@ mod tests {
         assert!(supports("/.env.production"));
         assert!(supports("/config/.env.local"));
         assert!(supports("/.env.bak"));
+        assert!(supports("/.env.dev"));
+        assert!(supports("/.env.development"));
+        assert!(supports("/.env.docker"));
+        assert!(supports("/app/.env.dev"));
     }
 
     #[test]
