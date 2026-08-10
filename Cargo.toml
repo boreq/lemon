@@ -20,3 +20,4 @@ tower-http = { version = "0.6.6", features = ["full"] }
 chrono = "0.4.42"
 rand = "0.8"
 askama = "0.15.4"
+percent-encoding = "2.3.2"
