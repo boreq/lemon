@@ -121,7 +121,9 @@ mod tests {
     #[test]
     fn loads_config_from_file_successfully() -> Result<()> {
         let expected = Config::new("0.0.0.0:8080", "127.0.0.1:9090", Environment::Development)?;
-        let loader = ConfigLoader::new(fixtures::test_file_path("src/adapters/testdata/config.toml"));
+        let loader = ConfigLoader::new(fixtures::test_file_path(
+            "src/adapters/testdata/config.toml",
+        ));
         let config = loader.load()?;
         assert_eq!(expected, config);
         Ok(())

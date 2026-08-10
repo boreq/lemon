@@ -27,7 +27,9 @@ impl<'a> Server<'a> {
     }
 }
 
-async fn handle_metrics(State(registry): State<Registry>) -> std::result::Result<String, StatusCode> {
+async fn handle_metrics(
+    State(registry): State<Registry>,
+) -> std::result::Result<String, StatusCode> {
     let encoder = TextEncoder::new();
     encoder
         .encode_to_string(&registry.gather())

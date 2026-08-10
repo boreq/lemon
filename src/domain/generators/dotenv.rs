@@ -57,7 +57,13 @@ struct DotEnvTemplate {
 fn build_template() -> DotEnvTemplate {
     let mut rng = rand::thread_rng();
 
-    let apps = ["acme-api", "shop-backend", "billing", "dashboard", "gateway"];
+    let apps = [
+        "acme-api",
+        "shop-backend",
+        "billing",
+        "dashboard",
+        "gateway",
+    ];
     let envs = ["production", "staging", "prod"];
     let app = apps.choose(&mut rng).unwrap().to_string();
     let env = envs.choose(&mut rng).unwrap().to_string();
@@ -86,9 +92,7 @@ fn build_template() -> DotEnvTemplate {
 }
 
 fn rand_alnum<R: Rng>(rng: &mut R, len: usize) -> String {
-    (0..len)
-        .map(|_| rng.sample(Alphanumeric) as char)
-        .collect()
+    (0..len).map(|_| rng.sample(Alphanumeric) as char).collect()
 }
 
 fn rand_upper_alnum<R: Rng>(rng: &mut R, len: usize) -> String {
